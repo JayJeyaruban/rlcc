@@ -1,0 +1,2 @@
+# lcc
+Compiler for LOLCODE
