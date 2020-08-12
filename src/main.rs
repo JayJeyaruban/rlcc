@@ -4,8 +4,8 @@ extern crate lazy_static;
 mod tokenizer;
 
 use std::env;
-use std::process::exit;
 use std::fs;
+use std::process::exit;
 
 use tokenizer::parse_tokens;
 
@@ -18,8 +18,9 @@ fn main() {
 
     let file_contents = match filename {
         None => exit(1),
-        Some(f) => fs::read_to_string(&f)
-    }.expect("Unable to read provided file.");
+        Some(f) => fs::read_to_string(&f),
+    }
+    .expect("Unable to read provided file.");
 
-    println!("{:?}",  parse_tokens(&file_contents));
+    println!("{:?}", parse_tokens(&file_contents));
 }
