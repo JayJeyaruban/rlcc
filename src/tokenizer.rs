@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-use crate::tokenizer::TokenParseResult::{TOKEN, VAL};
+use crate::tokenizer::TokenParseResult::{Token, Val};
 
-const HAI: &str = "HAI";
-const KTHXBYE: &str = "KTHXBYE";
-const SPACE: &str = " ";
-const NL: &str = "\n";
+pub const HAI: &str = "HAI";
+pub const KTHXBYE: &str = "KTHXBYE";
+pub const SPACE: &str = " ";
+pub const NL: &str = "\n";
 
 lazy_static! {
     static ref TOKENS: HashSet<String> = vec![HAI, KTHXBYE, SPACE, NL]
@@ -16,22 +16,22 @@ lazy_static! {
 
 #[derive(Debug)]
 pub enum TokenParseResult {
-    TOKEN(String),
-    VAL(String),
+    Token(String),
+    Val(String),
 }
 
 impl TokenParseResult {
     fn parse(s: &String) -> TokenParseResult {
         let s_str = s.as_str();
         if TOKENS.contains(s_str) {
-            TOKEN(s.clone())
+            Token(s.clone())
         } else {
-            VAL(s.clone())
+            Val(s.clone())
         }
     }
 }
 
-pub fn parse_tokens(content_string: &String) -> Vec<TokenParseResult> {
+pub fn tokenize_file(content_string: &String) -> Vec<TokenParseResult> {
     let mut tokens = Vec::new();
     let mut current_word = String::new();
     for c in content_string.chars() {

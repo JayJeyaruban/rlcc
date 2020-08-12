@@ -1,13 +1,15 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod parser;
 mod tokenizer;
 
 use std::env;
 use std::fs;
 use std::process::exit;
 
-use tokenizer::parse_tokens;
+use parser::parse_tokens;
+use tokenizer::tokenize_file;
 
 fn main() {
     let filename = env::args().nth(1);
@@ -22,5 +24,5 @@ fn main() {
     }
     .expect("Unable to read provided file.");
 
-    println!("{:?}", parse_tokens(&file_contents));
+    parse_tokens(&tokenize_file(&file_contents));
 }
