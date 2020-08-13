@@ -35,6 +35,9 @@ pub fn tokenize_file(content_string: &String) -> Vec<TokenParseResult> {
     let mut tokens = Vec::new();
     let mut current_word = String::new();
     for c in content_string.chars() {
+        if c == '\t' {
+            continue;
+        }
         match c {
             ' ' | '\n' => {
                 if !current_word.is_empty() {
