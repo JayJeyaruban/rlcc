@@ -1,5 +1,7 @@
 use crate::tokenizer::{TokenParseResult, HAI};
 
+const LATEST_LOLCODE_VERSION: f32 = 1.3;
+
 pub fn parse_tokens(tokens: &Vec<TokenParseResult>) {
   println!("{:?}", tokens);
 
@@ -14,6 +16,15 @@ pub fn parse_tokens(tokens: &Vec<TokenParseResult>) {
       } else {
         panic!(format!("Unexpected token {:?}", token));
       }
+    } else if i == 1 {
+      if let TokenParseResult::Val(val) = token {
+        if let Result::Ok(v) = val.parse::<f32>() {
+          if v > 0.0 && v <= LATEST_LOLCODE_VERSION {
+            continue;
+          }
+        }
+      }
+      panic!(format!("Unexpected token {:?}", token));
     }
   }
 
