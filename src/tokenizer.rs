@@ -47,5 +47,9 @@ pub fn tokenize_file(content_string: &String) -> Vec<TokenParseResult> {
         }
     }
 
+    if !current_word.is_empty() {
+        tokens.push(TokenParseResult::parse(&current_word))
+    }
+
     tokens
 }
