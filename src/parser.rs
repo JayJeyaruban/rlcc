@@ -72,5 +72,10 @@ pub fn process_tokens(tokens: Vec<ParsedToken>) -> Vec<String> {
         }
     }
 
+    match context {
+        ScopeContext::None => {}
+        _ => errs.push(format!("Missing final token {:?}", KeywordToken::KThxBye)),
+    }
+
     errs
 }
