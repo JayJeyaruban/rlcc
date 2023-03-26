@@ -8,8 +8,9 @@ use tokenizer::{ParsedToken, TokenParseResult};
 use crate::tokenizer::parse_tokens;
 
 fn main() -> Result<ExitCode, Vec<String>> {
-    // let filename = "tests/res/lci/test/1.3-Tests/1-Structure/1-EmptyMainBlock/test.lol";
-    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/2-MustBeginWithHAI/test.lol";
+    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/1-EmptyMainBlock/test.lol";
+    // let filename = "tests/res/lci/test/1.3-Tests/1-Structure/2-MustBeginWithHAI/test.lol";
+    // let filename = "tests/res/lci/test/1.3-Tests/1-Structure/3-MustIncludeVersion/test.lol";
 
     let file_contents = fs::read_to_string(&filename).unwrap();
 
