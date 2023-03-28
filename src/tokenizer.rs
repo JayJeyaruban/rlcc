@@ -48,7 +48,7 @@ fn process_char(
             None,
             Some(parse_buffer_and_append(buffer, ParsedToken::Space)),
         ),
-        '\n' => (
+        '\n' | '\r' => (
             None,
             Some(parse_buffer_and_append(buffer, ParsedToken::NewLine)),
         ),
