@@ -27,7 +27,7 @@ fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
 }
 
 fn main() -> Result<ExitCode, Vec<String>> {
-    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/5-IndentationIgnored/test.lol";
+    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/9-NewlineCRLF/test.lol";
 
     run(filename).map(|_| {
         println!("Compilation successful");
@@ -56,7 +56,7 @@ mod test {
 
     use crate::run;
 
-    #[test_resources("tests/res/lci/test/1.3-Tests/1-Structure/[1-5]-*")]
+    #[test_resources("tests/res/lci/test/1.3-Tests/1-Structure/[1-9]-*")]
     fn lci_test(resource: &str) {
         let test_dir = Path::new(resource);
 
