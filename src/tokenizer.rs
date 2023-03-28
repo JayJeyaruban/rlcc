@@ -44,7 +44,7 @@ fn process_char(
     };
 
     match c {
-        ' ' => (
+        ' ' | '\t' => (
             None,
             Some(parse_buffer_and_append(buffer, ParsedToken::Space)),
         ),
