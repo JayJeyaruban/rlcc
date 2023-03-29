@@ -4,6 +4,8 @@ mod tokenizer;
 use parser::process_tokens;
 use std::{fs, path::Path, process::ExitCode};
 use tokenizer::{ParsedToken, TokenParseResult};
+use tracing::{debug, metadata::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 use crate::tokenizer::parse_tokens;
 
@@ -12,6 +14,7 @@ fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
     let parse_results = parse_tokens(file_contents);
 
     let (tokens, errs) = split_errs(parse_results);
+    debug!(tokens = ?&tokens);
 
     let mut errs = errs;
 
@@ -27,7 +30,15 @@ fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
 }
 
 fn main() -> Result<ExitCode, Vec<String>> {
-    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/9-NewlineCRLF/test.lol";
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .without_time()
+                .compact()
+                .with_filter(LevelFilter::DEBUG),
+        )
+        .init();
+    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/13-EllipsesJoinCRLF/test.lol";
 
     run(filename).map(|_| {
         println!("Compilation successful");
@@ -56,8 +67,8 @@ mod test {
 
     use crate::run;
 
-    #[test_resources("tests/res/lci/test/1.3-Tests/1-Structure/[1-9]-*")]
-    fn lci_test(resource: &str) {
+    #[test_resources("tests/res/lci/test/1.3-Tests/1-Structure/**")]
+    fn lci_structure_tests(resource: &str) {
         let test_dir = Path::new(resource);
 
         let contains_err_file = {
