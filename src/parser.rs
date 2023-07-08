@@ -1,4 +1,4 @@
-use tracing::{debug, error};
+use mediator_tracing::tracing::{debug, error};
 
 use crate::tokenizer::{KeywordToken, ParsedToken};
 
