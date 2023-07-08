@@ -1,11 +1,12 @@
 mod parser;
 mod tokenizer;
 
+use clap::Parser;
+use mediator_tracing::tracing::debug;
+use mediator_tracing::TracingModule;
 use parser::process_tokens;
 use std::{fs, path::Path, process::ExitCode};
 use tokenizer::{ParsedToken, TokenParseResult};
-use tracing::{debug, metadata::LevelFilter};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 use crate::tokenizer::parse_tokens;
 
@@ -30,17 +31,10 @@ fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
 }
 
 fn main() -> Result<ExitCode, Vec<String>> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .without_time()
-                .compact()
-                .with_filter(LevelFilter::DEBUG),
-        )
-        .init();
-    let filename = "tests/res/lci/test/1.3-Tests/1-Structure/13-EllipsesJoinCRLF/test.lol";
+    let args = Args::parse();
+    TracingModule::from_level(args.log_level).init();
 
-    run(filename).map(|_| {
+    run(args.filename).map(|_| {
         println!("Compilation successful");
         ExitCode::SUCCESS
     })
@@ -57,6 +51,15 @@ fn split_errs(results: Vec<TokenParseResult>) -> (Vec<ParsedToken>, Vec<String>)
     }
 
     (tokens, errs)
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    filename: String,
+    /// Log level
+    #[arg(long, default_value = "info")]
+    log_level: String,
 }
 
 #[cfg(test)]
