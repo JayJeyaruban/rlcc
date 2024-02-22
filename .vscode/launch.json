@@ -16,7 +16,11 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "tests/res/lci/test/1.3-Tests/1-Structure/13-EllipsesJoinCRLF/test.lol",
+                "--log-level",
+                "debug"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
