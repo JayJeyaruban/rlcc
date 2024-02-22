@@ -1,16 +1,22 @@
+mod interpreter;
 mod parser;
 mod tokenizer;
 
 use clap::Parser;
-use mediator_tracing::tracing::debug;
-use mediator_tracing::TracingModule;
+use mediator::Module;
+use mediator_tracing::tracing::{info, Level};
+use mediator_tracing::{tracing::debug, TracingConfig};
+use mediator_tracing::{Targets, TracingModule};
 use parser::process_tokens;
+use std::io::{stdout, Write};
+use std::str::FromStr;
 use std::{fs, path::Path, process::ExitCode};
 use tokenizer::{ParsedToken, TokenParseResult};
 
+use crate::interpreter::execute;
 use crate::tokenizer::parse_tokens;
 
-fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
+fn run<P: AsRef<Path>, W: Write>(path: P, interpret: bool, mut out: W) -> Result<(), Vec<String>> {
     let file_contents = fs::read_to_string(path).expect("Unable to read provided file");
     let parse_results = parse_tokens(file_contents);
 
@@ -19,35 +25,48 @@ fn run<P: AsRef<Path>>(path: P) -> Result<(), Vec<String>> {
 
     let mut errs = errs;
 
-    for err in process_tokens(tokens) {
+    let (prog, tokenizer_errs) = process_tokens(tokens);
+    for err in tokenizer_errs {
         errs.push(err);
     }
 
+    debug!(?prog);
+
     if errs.len() > 0 {
-        Err(errs)
-    } else {
-        Ok(())
+        return Err(errs);
     }
+
+    match (interpret, prog) {
+        (true, Some(prog)) => execute(prog, &mut out),
+        _ => {}
+    };
+
+    Ok(())
 }
 
 fn main() -> Result<ExitCode, Vec<String>> {
     let args = Args::parse();
-    TracingModule::from_level(args.log_level).init();
+    TracingModule::new(Some(TracingConfig {
+        base_targets: Some(
+            Targets::default().with_default(Level::from_str(&args.log_level).unwrap()),
+        ),
+        layer: mediator_tracing::TracingLayer::Log,
+    }))
+    .initialize(None)
+    .init();
+    info!(?args);
 
-    run(args.filename).map(|_| {
+    run(args.filename, args.interpret, stdout()).map(|_| {
         println!("Compilation successful");
         ExitCode::SUCCESS
     })
 }
 
 fn split_errs(results: Vec<TokenParseResult>) -> (Vec<ParsedToken>, Vec<String>) {
-    let mut errs = Vec::new();
+    let errs = Vec::new();
     let mut tokens = Vec::new();
     for res in results {
-        match res {
-            Ok(token) => tokens.push(token),
-            Err(err) => errs.push(err),
-        }
+        tokens.push(res.result);
     }
 
     (tokens, errs)
@@ -60,11 +79,14 @@ struct Args {
     /// Log level
     #[arg(long, default_value = "info")]
     log_level: String,
+    /// Enables interpreter mode
+    #[arg(short, default_value = "true")]
+    interpret: bool,
 }
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
+    use std::{fs, io::BufWriter, path::Path};
 
     use test_generator::test_resources;
 
@@ -83,8 +105,27 @@ mod test {
         let mut input_file = test_dir.to_path_buf();
         input_file.push("test.lol");
 
-        let result = run(input_file);
+        let mut buf = BufWriter::new(Vec::new());
+        let result = run(input_file, true, &mut buf);
+        let out_str = String::from_utf8(buf.into_inner().expect("convert buf to output bytes"))
+            .expect("convert output bytes to utf-8 string");
 
+        let out_file = {
+            let mut out_file = test_dir.to_path_buf();
+            out_file.push("test.out");
+            out_file
+        };
+
+        if out_file.is_file() {
+            let out_content = fs::read_to_string(out_file).expect("Unable to read provided file");
+            println!("Testing output");
+            assert_eq!(
+                out_content, out_str,
+                "prog output does not match test output"
+            );
+        }
+
+        println!("Output: {out_str}");
         assert_eq!(contains_err_file, result.is_err())
     }
 }
