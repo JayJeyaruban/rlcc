@@ -9,9 +9,13 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.71"
 clap = { version = "4.3.11", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+mediator = { git = "ssh://git@github.com/JayJeyaruban/mediator.git" }
 mediator-tracing = { git = "ssh://git@github.com/JayJeyaruban/mediator.git", features = [
   "export-tracing",
 ] }
+jsm = "0.1.0"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 test-generator = "0.3.1"

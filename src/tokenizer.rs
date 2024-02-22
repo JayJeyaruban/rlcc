@@ -1,86 +1,117 @@
-#[derive(Debug, PartialEq, Eq)]
+use derive_more::Display;
+
+#[derive(Debug, PartialEq, Eq, Display)]
 pub enum KeywordToken {
     Hai,
     KThxBye,
+    Visible,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Display)]
 pub enum ParsedToken {
     Keyword(KeywordToken),
+    #[display(fmt = "{_0}")]
     Word(String),
+    #[display(fmt = " ")]
     Space,
+    #[display(fmt = "\n")]
     NewLine,
+    #[display(fmt = ".")]
     Period,
+    #[display(fmt = ",")]
+    Comma,
+    #[display(fmt = "\"")]
+    Quote,
 }
 
-pub type TokenParseResult = Result<ParsedToken, String>;
+#[derive(Debug)]
+pub struct TokenLocation {
+    line: usize,
+    column: usize,
+}
+
+#[derive(Debug)]
+#[jsm::public]
+pub struct TokenParseResult {
+    location: TokenLocation,
+    result: ParsedToken,
+}
 
 pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
     let mut parsed_tokens = Vec::new();
-    let mut buffer: Option<String> = None;
+    let mut buffer: String = String::new();
     let mut skip_nl = false;
+    let mut current_line = 1;
+    let mut current_col = 1;
     for c in content_string.chars() {
-        if !skip_nl && c == '\r' {
-            skip_nl = true;
-        }
-        let tokens;
-        (buffer, tokens) = process_char(c, buffer, skip_nl);
-
-        if let Some(tokens) = tokens {
+        let mut consume_buffer_and_append = |token| {
+            let mut tokens = vec![];
+            if let Some(token) = parse_word(&mut buffer) {
+                tokens.push(token);
+            }
+            tokens.push(token);
             tokens
-                .into_iter()
-                .for_each(|token| parsed_tokens.push(token));
+        };
+
+        let tokens;
+        (tokens, current_line, current_col) = match c {
+            '\r' => {
+                skip_nl = true;
+                let tokens = consume_buffer_and_append(ParsedToken::NewLine);
+                (Some(tokens), current_line + 1, 1)
+            }
+            '\n' => match skip_nl {
+                true => (None, current_line, current_col),
+                false => {
+                    let tokens = consume_buffer_and_append(ParsedToken::NewLine);
+                    (Some(tokens), current_line + 1, 1)
+                }
+            },
+            ' ' | '\t' => {
+                let tokens = consume_buffer_and_append(ParsedToken::Space);
+                (Some(tokens), current_line, current_col + 1)
+            }
+            '.' => {
+                let tokens = consume_buffer_and_append(ParsedToken::Period);
+                (Some(tokens), current_line, current_col + 1)
+            }
+            ',' => {
+                let tokens = consume_buffer_and_append(ParsedToken::Comma);
+                (Some(tokens), current_line, current_col + 1)
+            }
+            '"' => {
+                let tokens = consume_buffer_and_append(ParsedToken::Quote);
+                (Some(tokens), current_line, current_col + 1)
+            }
+            _ => {
+                buffer.push(c);
+                (None, current_line, current_col + 1)
+            }
+        };
+        if let Some(tokens) = tokens {
+            for token in tokens {
+                parsed_tokens.push(TokenParseResult {
+                    location: TokenLocation {
+                        line: current_line,
+                        column: current_col,
+                    },
+                    result: token,
+                });
+            }
         }
     }
+
     parsed_tokens
 }
 
-fn process_char(
-    c: char,
-    buffer: Option<String>,
-    skip_nl: bool,
-) -> (Option<String>, Option<Vec<TokenParseResult>>) {
-    let parse_buffer_and_append = |buffer, token| {
-        let mut tokens = parse_word(buffer)
-            .map(|token| vec![token])
-            .unwrap_or_default();
-
-        tokens.push(Ok(token));
-        tokens
+fn parse_word(buffer: &mut String) -> Option<ParsedToken> {
+    let token = match buffer.as_str() {
+        "HAI" => Some(ParsedToken::Keyword(KeywordToken::Hai)),
+        "KTHXBYE" => Some(ParsedToken::Keyword(KeywordToken::KThxBye)),
+        "VISIBLE" => Some(ParsedToken::Keyword(KeywordToken::Visible)),
+        "" => None,
+        _ => Some(ParsedToken::Word(buffer.to_string())),
     };
-
-    match c {
-        ' ' | '\t' => (
-            None,
-            Some(parse_buffer_and_append(buffer, ParsedToken::Space)),
-        ),
-        '\n' => match skip_nl {
-            true => (buffer, None),
-            false => (
-                None,
-                Some(parse_buffer_and_append(buffer, ParsedToken::NewLine)),
-            ),
-        },
-        '\r' => (
-            None,
-            Some(parse_buffer_and_append(buffer, ParsedToken::NewLine)),
-        ),
-        '.' => (
-            None,
-            Some(parse_buffer_and_append(buffer, ParsedToken::Period)),
-        ),
-        _ => {
-            let mut buffer = buffer.unwrap_or_default();
-            buffer.push(c);
-            (Some(buffer), None)
-        }
-    }
-}
-
-fn parse_word(buffer: Option<String>) -> Option<TokenParseResult> {
-    buffer.map(|buffer| match buffer.as_str() {
-        "HAI" => Ok(ParsedToken::Keyword(KeywordToken::Hai)),
-        "KTHXBYE" => Ok(ParsedToken::Keyword(KeywordToken::KThxBye)),
-        _ => Ok(ParsedToken::Word(buffer)),
-    })
+    buffer.clear();
+    token
 }
