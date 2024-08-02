@@ -14,6 +14,8 @@ pub fn execute<W: Write>(prog: LolCodeProgram, out: &mut W) {
             }
             ExprContext::Join(_) => todo!(),
             ExprContext::String(_) => todo!(),
+            ExprContext::IncludeInProgress(_) => todo!(),
+            ExprContext::Include(_) => {}
         }
     }
 }
