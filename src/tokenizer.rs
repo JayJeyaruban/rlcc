@@ -1,10 +1,20 @@
 use derive_more::Display;
+use mediator_tracing::tracing::trace;
 
 #[derive(Debug, PartialEq, Eq, Display)]
 pub enum KeywordToken {
     Hai,
     KThxBye,
     Visible,
+    Btw,
+    Can,
+    Has,
+}
+
+impl From<KeywordToken> for ParsedToken {
+    fn from(value: KeywordToken) -> Self {
+        ParsedToken::Keyword(value)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Display)]
@@ -106,12 +116,16 @@ pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
 
 fn parse_word(buffer: &mut String) -> Option<ParsedToken> {
     let token = match buffer.as_str() {
-        "HAI" => Some(ParsedToken::Keyword(KeywordToken::Hai)),
-        "KTHXBYE" => Some(ParsedToken::Keyword(KeywordToken::KThxBye)),
-        "VISIBLE" => Some(ParsedToken::Keyword(KeywordToken::Visible)),
+        "HAI" => Some(KeywordToken::Hai.into()),
+        "KTHXBYE" => Some(KeywordToken::KThxBye.into()),
+        "VISIBLE" => Some(KeywordToken::Visible.into()),
+        "BTW" => Some(KeywordToken::Btw.into()),
+        "CAN" => Some(KeywordToken::Can.into()),
+        "HAS" => Some(KeywordToken::Has.into()),
         "" => None,
         _ => Some(ParsedToken::Word(buffer.to_string())),
     };
     buffer.clear();
+    trace!(?token);
     token
 }
