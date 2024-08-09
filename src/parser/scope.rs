@@ -1,4 +1,7 @@
-use crate::tokenizer::{KeywordToken, ParsedToken};
+use crate::{
+    framework::{HandleTokenProcessingError, TokenProcessingError},
+    tokenizer::{KeywordToken, Token, TokenType},
+};
 
 use super::{LolCodeProgram, LolCodeVersion, ParseScope, StackOp};
 
@@ -9,6 +12,23 @@ pub enum ScopeContext {
     Comment(CommentContext),
 }
 
+impl<T> ParseScope<ScopeContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut ScopeContext,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        match scope {
+            ScopeContext::Comment(comment) => self.process_token(comment, token),
+            ScopeContext::Decoration(decoration) => self.process_token(decoration, token),
+            ScopeContext::Main(main) => self.process_token(main, token),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecorationContext {
     Started,
@@ -16,60 +36,65 @@ pub enum DecorationContext {
     WithMajorAndPeriod(i32),
 }
 
-impl ParseScope for DecorationContext {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match self {
-            DecorationContext::Started => match token {
-                ParsedToken::Keyword(token) => (
-                    StackOp::Retain(None),
-                    Some(format!("Unexpected token {token:?}")),
+impl<T> ParseScope<DecorationContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut DecorationContext,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        let op = match scope {
+            DecorationContext::Started => match &token.t_type {
+                TokenType::Keyword(keyword) => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {keyword:?}"),
+                    })?;
+                    StackOp::Retain(None)
+                }
+                TokenType::Word(word) => StackOp::Replace(
+                    DecorationContext::WithMajor(
+                        word.parse::<i32>()
+                            .expect(format!("parsing major from {}", word).as_str()),
+                    )
+                    .into(),
                 ),
-                ParsedToken::Word(word) => (
-                    StackOp::Replace(
-                        DecorationContext::WithMajor(
-                            word.parse::<i32>()
-                                .expect(format!("parsing major from {}", word).as_str()),
-                        )
-                        .into(),
-                    ),
-                    None,
-                ),
-                ParsedToken::NewLine | ParsedToken::Space => (StackOp::Retain(None), None),
-                _ => (StackOp::Retain(None), None),
+                TokenType::NewLine | TokenType::Space => StackOp::Retain(None),
+                _ => StackOp::Retain(None),
             },
-            DecorationContext::WithMajor(major) => match token {
-                ParsedToken::Period => (
-                    StackOp::Replace(DecorationContext::WithMajorAndPeriod(*major).into()),
-                    None,
-                ),
-                _ => (
-                    StackOp::Retain(None),
-                    Some(format!("Unexpected token {token:?}. Expected period")),
-                ),
+            DecorationContext::WithMajor(major) => match token.t_type {
+                TokenType::Period => {
+                    StackOp::Replace(DecorationContext::WithMajorAndPeriod(*major).into())
+                }
+                _ => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {token:?}. Expected period"),
+                    })?;
+                    StackOp::Retain(None)
+                }
             },
-            DecorationContext::WithMajorAndPeriod(major) => match token {
-                ParsedToken::Word(word) => (
-                    StackOp::Replace(
-                        MainContext::Root {
-                            version: LolCodeVersion::try_from((
-                                *major,
-                                word.parse::<i32>().unwrap(),
-                            ))
+            DecorationContext::WithMajorAndPeriod(major) => match &token.t_type {
+                TokenType::Word(word) => StackOp::Replace(
+                    MainContext::Root {
+                        version: LolCodeVersion::try_from((*major, word.parse::<i32>().unwrap()))
                             .expect("parse minor for LolCode version"),
-                            instrs: Vec::new(),
-                        }
-                        .into(),
-                    ),
-                    None,
+                        instrs: Vec::new(),
+                    }
+                    .into(),
                 ),
-                _ => (
-                    StackOp::Retain(None),
-                    Some(format!(
-                        "Unexpected token {token:?}. Expected minor version"
-                    )),
-                ),
+                _ => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {token:?}. Expected minor version"),
+                    })?;
+                    StackOp::Retain(None)
+                }
             },
-        }
+        };
+        Ok(op)
     }
 }
 
@@ -90,78 +115,89 @@ pub enum MainContext {
     Complete(LolCodeProgram),
 }
 
-impl ParseScope for MainContext {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match (self, token) {
-            (MainContext::Pre, ParsedToken::Keyword(KeywordToken::Hai)) => {
-                (StackOp::Replace(DecorationContext::Started.into()), None)
+impl<T> ParseScope<MainContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(&mut self, scope: &mut MainContext, token: &Token) -> anyhow::Result<StackOp> {
+        let op = match (scope, &token.t_type) {
+            (MainContext::Pre, TokenType::Keyword(KeywordToken::Hai)) => {
+                StackOp::Replace(DecorationContext::Started.into())
             }
-            (MainContext::Pre, ParsedToken::Space | ParsedToken::NewLine) => {
-                (StackOp::Retain(None), None)
+            (MainContext::Pre, TokenType::Space | TokenType::NewLine) => StackOp::Retain(None),
+            (MainContext::Pre, t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!(
+                        "Unexpected token {t_type:?}. Expected {:?}",
+                        KeywordToken::Hai
+                    ),
+                })?;
+                StackOp::Retain(None)
             }
-            (MainContext::Pre, token) => (
-                StackOp::Retain(None),
-                Some(format!(
-                    "Unexpected token {token:?}. Expected {:?}",
-                    KeywordToken::Hai
-                )),
-            ),
-            (MainContext::Root { .. }, ParsedToken::Space | ParsedToken::NewLine) => {
-                (StackOp::Retain(None), None)
+            (MainContext::Root { .. }, TokenType::Space | TokenType::NewLine) => {
+                StackOp::Retain(None)
             }
-            (MainContext::Root { version, instrs }, ParsedToken::Keyword(token)) => {
-                Self::root_handle_keyword(version, instrs, token)
+            (MainContext::Root { version, instrs }, TokenType::Keyword(kw_token)) => {
+                MainContext::root_handle_keyword(version, instrs, kw_token, |err| {
+                    self.handle_err(TokenProcessingError { token, err })
+                })?
             }
-            (MainContext::Root { .. }, token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-            (MainContext::Expr(expr), token) => expr.process_token(token),
-            (MainContext::Complete(_), ParsedToken::NewLine | ParsedToken::Space) => {
-                (StackOp::Retain(None), None)
+            (MainContext::Root { .. }, t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}"),
+                })?;
+                StackOp::Retain(None)
             }
-            (MainContext::Complete(_), token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-        }
+            (MainContext::Expr(expr), _) => self.process_token(expr, token)?,
+            (MainContext::Complete(_), TokenType::NewLine | TokenType::Space) => {
+                StackOp::Retain(None)
+            }
+            (MainContext::Complete(_), t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}"),
+                })?;
+                StackOp::Retain(None)
+            }
+        };
+        Ok(op)
     }
 }
 
 impl MainContext {
-    fn root_handle_keyword(
+    fn root_handle_keyword<F>(
         version: &mut LolCodeVersion,
         instrs: &mut Vec<ExprContext>,
-        token: KeywordToken,
-    ) -> (StackOp, Option<String>) {
-        match token {
-            KeywordToken::KThxBye => (
-                StackOp::Replace(
-                    MainContext::Complete(LolCodeProgram {
-                        version: version.to_owned(),
-                        instrs: instrs.to_owned(),
-                    })
-                    .into(),
-                ),
-                None,
+        token: &KeywordToken,
+        mut handle_err: F,
+    ) -> anyhow::Result<StackOp>
+    where
+        F: FnMut(String) -> anyhow::Result<()>,
+    {
+        let op = match token {
+            KeywordToken::KThxBye => StackOp::Replace(
+                MainContext::Complete(LolCodeProgram {
+                    version: version.to_owned(),
+                    instrs: instrs.to_owned(),
+                })
+                .into(),
             ),
-            KeywordToken::Visible => (
-                StackOp::Retain(Some(ExprContext::Visible { args: Vec::new() }.into())),
-                None,
-            ),
-            KeywordToken::Can => (
-                StackOp::Retain(Some(IncludeInProgress::Started.into())),
-                None,
-            ),
-            KeywordToken::Has => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}. Are you missing CAN?")),
-            ),
-            token => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-        }
+            KeywordToken::Visible => {
+                StackOp::Retain(Some(ExprContext::Visible { args: Vec::new() }.into()))
+            }
+            KeywordToken::Can => StackOp::Retain(Some(IncludeInProgress::Started.into())),
+            KeywordToken::Has => {
+                handle_err(format!("Unexpected token {token:?}. Are you missing CAN?"))?;
+                StackOp::Retain(None)
+            }
+            token => {
+                handle_err(format!("Unexpected token {token:?}"))?;
+                StackOp::Retain(None)
+            }
+        };
+        Ok(op)
     }
 }
 
@@ -186,50 +222,71 @@ impl From<ExprContext> for ScopeContext {
     }
 }
 
-impl ParseScope for ExprContext {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match (self, token) {
-            (ExprContext::Visible { .. }, ParsedToken::NewLine | ParsedToken::Comma) => {
-                (StackOp::Unwind, None)
+impl<T> ParseScope<ExprContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(&mut self, scope: &mut ExprContext, token: &Token) -> anyhow::Result<StackOp> {
+        let op = match (scope, &token.t_type) {
+            (ExprContext::Visible { .. }, TokenType::NewLine | TokenType::Comma) => StackOp::Unwind,
+            (ExprContext::Visible { .. }, TokenType::Quote) => {
+                StackOp::Retain(Some(StringExprContext(String::new()).into()))
             }
-            (ExprContext::Visible { .. }, ParsedToken::Quote) => (
-                StackOp::Retain(Some(StringExprContext(String::new()).into())),
-                None,
-            ),
-            (ExprContext::Visible { .. }, ParsedToken::Space) => (StackOp::Retain(None), None),
-            (ExprContext::Visible { .. }, ParsedToken::Period) => {
-                (StackOp::Retain(Some(JoinContext::Period1.into())), None)
+            (ExprContext::Visible { .. }, TokenType::Space) => StackOp::Retain(None),
+            (ExprContext::Visible { .. }, TokenType::Period) => {
+                StackOp::Retain(Some(JoinContext::Period1.into()))
             }
-            (ExprContext::Visible { .. }, token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}.")),
-            ),
-            (ExprContext::String(string_ctx), token) => string_ctx.process_token(token),
-            (ExprContext::Join(join_ctx), token) => join_ctx.process_token(token),
-            (ExprContext::IncludeInProgress(includes), token) => includes.process_token(token),
-            (ExprContext::Include(_), ParsedToken::NewLine) => (StackOp::Unwind, None),
-            (ExprContext::Include(_), ParsedToken::Space) => (StackOp::Retain(None), None),
-            (ExprContext::Include(_), token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-        }
+            (ExprContext::Visible { .. }, t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}."),
+                })?;
+                StackOp::Retain(None)
+            }
+            (ExprContext::String(string_ctx), _) => self.process_token(string_ctx, token)?,
+            (ExprContext::Join(join_ctx), _) => self.process_token(join_ctx, token)?,
+            (ExprContext::IncludeInProgress(includes), _) => self.process_token(includes, token)?,
+            (ExprContext::Include(_), TokenType::NewLine) => StackOp::Unwind,
+            (ExprContext::Include(_), TokenType::Space) => StackOp::Retain(None),
+            (ExprContext::Include(_), t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}"),
+                })?;
+                StackOp::Retain(None)
+            }
+        };
+        Ok(op)
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct StringExprContext(pub String);
 
-impl ParseScope for StringExprContext {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match token {
-            ParsedToken::NewLine => (StackOp::Unwind, Some("Unexpected newline".to_string())),
-            ParsedToken::Quote => (StackOp::Unwind, None),
-            token => {
-                self.0.push_str(token.to_string().as_str());
-                (StackOp::Retain(None), None)
+impl<T> ParseScope<StringExprContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut StringExprContext,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        let op = match &token.t_type {
+            TokenType::NewLine => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: "Unexpected newline".to_string(),
+                })?;
+                StackOp::Unwind
             }
-        }
+            TokenType::Quote => StackOp::Unwind,
+            token => {
+                scope.0.push_str(token.to_string().as_str());
+                StackOp::Retain(None)
+            }
+        };
+        Ok(op)
     }
 }
 
@@ -247,38 +304,54 @@ pub enum JoinContext {
     NewLine,
 }
 
-impl JoinContext {
-    pub fn process_token(&self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match self {
-            JoinContext::Period1 => match token {
-                ParsedToken::Period => (StackOp::Replace(JoinContext::Period2.into()), None),
-                _ => (
-                    StackOp::Retain(None),
-                    Some(format!("Unexpected token {token:?}. Expected '.'.")),
-                ),
+impl<T> ParseScope<JoinContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(&mut self, scope: &mut JoinContext, token: &Token) -> anyhow::Result<StackOp> {
+        let op = match scope {
+            JoinContext::Period1 => match token.t_type {
+                TokenType::Period => StackOp::Replace(JoinContext::Period2.into()),
+                _ => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {token:?}. Expected '.'."),
+                    })?;
+                    StackOp::Retain(None)
+                }
             },
-            JoinContext::Period2 => match token {
-                ParsedToken::Period => (StackOp::Replace(JoinContext::Period3.into()), None),
-                _ => (
-                    StackOp::Retain(None),
-                    Some(format!("Unexpected token {token:?}. Expected '.'.")),
-                ),
+            JoinContext::Period2 => match &token.t_type {
+                TokenType::Period => StackOp::Replace(JoinContext::Period3.into()),
+                t_type => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {t_type:?}. Expected '.'."),
+                    })?;
+                    StackOp::Retain(None)
+                }
             },
-            JoinContext::Period3 => match token {
-                ParsedToken::NewLine => (StackOp::Replace(JoinContext::NewLine.into()), None),
-                _ => (
-                    StackOp::Retain(None),
-                    Some(format!("Unexpected token {token:?}. Expected newline.")),
-                ),
+            JoinContext::Period3 => match &token.t_type {
+                TokenType::NewLine => StackOp::Replace(JoinContext::NewLine.into()),
+                t_type => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: format!("Unexpected token {t_type:?}. Expected newline."),
+                    })?;
+                    StackOp::Retain(None)
+                }
             },
-            JoinContext::NewLine => match token {
-                ParsedToken::NewLine => (
-                    StackOp::Unwind,
-                    Some("invalid newline after join".to_string()),
-                ),
-                _ => (StackOp::Unwind, None),
+            JoinContext::NewLine => match token.t_type {
+                TokenType::NewLine => {
+                    self.handle_err(TokenProcessingError {
+                        token,
+                        err: "invalid newline after join".to_string(),
+                    })?;
+                    StackOp::Unwind
+                }
+                _ => StackOp::Unwind,
             },
-        }
+        };
+        Ok(op)
     }
 }
 
@@ -300,19 +373,26 @@ impl From<CommentContext> for ScopeContext {
     }
 }
 
-impl ParseScope for CommentContext {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match (self, token) {
-            (CommentContext::Started, token) => (
-                StackOp::Replace(CommentContext::InProgress(vec![token.to_string()]).into()),
-                None,
-            ),
-            (CommentContext::InProgress(_), ParsedToken::NewLine) => (StackOp::Unwind, None),
+impl<T> ParseScope<CommentContext> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut CommentContext,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        let op = match (scope, &token.t_type) {
+            (CommentContext::Started, t_type) => {
+                StackOp::Replace(CommentContext::InProgress(vec![t_type.to_string()]).into())
+            }
+            (CommentContext::InProgress(_), TokenType::NewLine) => StackOp::Unwind,
             (CommentContext::InProgress(txt), token) => {
                 txt.push(token.to_string());
-                (StackOp::Retain(None), None)
+                StackOp::Retain(None)
             }
-        }
+        };
+        Ok(op)
     }
 }
 
@@ -341,34 +421,53 @@ impl From<IncludeInProgress> for ScopeContext {
     }
 }
 
-impl ParseScope for IncludeInProgress {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>) {
-        match (self, token) {
-            (IncludeInProgress::Started, ParsedToken::Space) => {
-                (StackOp::Replace(IncludeInProgress::ReadyHas.into()), None)
+impl<T> ParseScope<IncludeInProgress> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut IncludeInProgress,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        let op = match (scope, &token.t_type) {
+            (IncludeInProgress::Started, TokenType::Space) => {
+                StackOp::Replace(IncludeInProgress::ReadyHas.into())
             }
-            (IncludeInProgress::Started, token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-            (IncludeInProgress::ReadyHas, ParsedToken::Keyword(KeywordToken::Has)) => {
-                (StackOp::Replace(IncludeInProgress::Has.into()), None)
+            (IncludeInProgress::Started, t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}"),
+                })?;
+                StackOp::Retain(None)
             }
-            (IncludeInProgress::Has, ParsedToken::Space) => (
-                StackOp::Replace(IncludeInProgress::ReadyModule.into()),
-                None,
-            ),
-            (IncludeInProgress::ReadyModule, ParsedToken::Word(module)) => {
-                (StackOp::Replace(IncludesContext { module }.into()), None)
+            (IncludeInProgress::ReadyHas, TokenType::Keyword(KeywordToken::Has)) => {
+                StackOp::Replace(IncludeInProgress::Has.into())
             }
-            (IncludeInProgress::ReadyModule, _) => (
-                StackOp::Retain(None),
-                Some("Expected module to include".to_string()),
+            (IncludeInProgress::Has, TokenType::Space) => {
+                StackOp::Replace(IncludeInProgress::ReadyModule.into())
+            }
+            (IncludeInProgress::ReadyModule, TokenType::Word(module)) => StackOp::Replace(
+                IncludesContext {
+                    module: module.to_owned(),
+                }
+                .into(),
             ),
-            (_, token) => (
-                StackOp::Retain(None),
-                Some(format!("Unexpected token {token:?}")),
-            ),
-        }
+            (IncludeInProgress::ReadyModule, _) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: "Expected module to include".to_string(),
+                })?;
+                StackOp::Retain(None)
+            }
+            (_, t_type) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Unexpected token {t_type:?}"),
+                })?;
+                StackOp::Retain(None)
+            }
+        };
+        Ok(op)
     }
 }

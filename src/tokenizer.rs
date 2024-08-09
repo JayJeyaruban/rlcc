@@ -11,14 +11,14 @@ pub enum KeywordToken {
     Has,
 }
 
-impl From<KeywordToken> for ParsedToken {
+impl From<KeywordToken> for TokenType {
     fn from(value: KeywordToken) -> Self {
-        ParsedToken::Keyword(value)
+        TokenType::Keyword(value)
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Display)]
-pub enum ParsedToken {
+pub enum TokenType {
     Keyword(KeywordToken),
     #[display(fmt = "{_0}")]
     Word(String),
@@ -35,6 +35,7 @@ pub enum ParsedToken {
 }
 
 #[derive(Debug)]
+#[jsm::public]
 pub struct TokenLocation {
     line: usize,
     column: usize,
@@ -42,12 +43,12 @@ pub struct TokenLocation {
 
 #[derive(Debug)]
 #[jsm::public]
-pub struct TokenParseResult {
+pub struct Token {
     location: TokenLocation,
-    result: ParsedToken,
+    t_type: TokenType,
 }
 
-pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
+pub fn parse_tokens(content_string: String) -> Vec<Token> {
     let mut parsed_tokens = Vec::new();
     let mut buffer: String = String::new();
     let mut skip_nl = false;
@@ -67,30 +68,30 @@ pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
         (tokens, current_line, current_col) = match c {
             '\r' => {
                 skip_nl = true;
-                let tokens = consume_buffer_and_append(ParsedToken::NewLine);
+                let tokens = consume_buffer_and_append(TokenType::NewLine);
                 (Some(tokens), current_line + 1, 1)
             }
             '\n' => match skip_nl {
                 true => (None, current_line, current_col),
                 false => {
-                    let tokens = consume_buffer_and_append(ParsedToken::NewLine);
+                    let tokens = consume_buffer_and_append(TokenType::NewLine);
                     (Some(tokens), current_line + 1, 1)
                 }
             },
             ' ' | '\t' => {
-                let tokens = consume_buffer_and_append(ParsedToken::Space);
+                let tokens = consume_buffer_and_append(TokenType::Space);
                 (Some(tokens), current_line, current_col + 1)
             }
             '.' => {
-                let tokens = consume_buffer_and_append(ParsedToken::Period);
+                let tokens = consume_buffer_and_append(TokenType::Period);
                 (Some(tokens), current_line, current_col + 1)
             }
             ',' => {
-                let tokens = consume_buffer_and_append(ParsedToken::Comma);
+                let tokens = consume_buffer_and_append(TokenType::Comma);
                 (Some(tokens), current_line, current_col + 1)
             }
             '"' => {
-                let tokens = consume_buffer_and_append(ParsedToken::Quote);
+                let tokens = consume_buffer_and_append(TokenType::Quote);
                 (Some(tokens), current_line, current_col + 1)
             }
             _ => {
@@ -100,12 +101,12 @@ pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
         };
         if let Some(tokens) = tokens {
             for token in tokens {
-                parsed_tokens.push(TokenParseResult {
+                parsed_tokens.push(Token {
                     location: TokenLocation {
                         line: current_line,
                         column: current_col,
                     },
-                    result: token,
+                    t_type: token,
                 });
             }
         }
@@ -114,7 +115,7 @@ pub fn parse_tokens(content_string: String) -> Vec<TokenParseResult> {
     parsed_tokens
 }
 
-fn parse_word(buffer: &mut String) -> Option<ParsedToken> {
+fn parse_word(buffer: &mut String) -> Option<TokenType> {
     let token = match buffer.as_str() {
         "HAI" => Some(KeywordToken::Hai.into()),
         "KTHXBYE" => Some(KeywordToken::KThxBye.into()),
@@ -123,7 +124,7 @@ fn parse_word(buffer: &mut String) -> Option<ParsedToken> {
         "CAN" => Some(KeywordToken::Can.into()),
         "HAS" => Some(KeywordToken::Has.into()),
         "" => None,
-        _ => Some(ParsedToken::Word(buffer.to_string())),
+        _ => Some(TokenType::Word(buffer.to_string())),
     };
     buffer.clear();
     trace!(?token);

@@ -1,54 +1,54 @@
 mod scope;
 
-use mediator_tracing::tracing::{debug, debug_span, error};
+use anyhow::{bail, Context};
+use mediator_tracing::tracing::{debug, debug_span};
 use scope::*;
 
 pub use scope::ExprContext;
 
-use crate::tokenizer::{KeywordToken, ParsedToken};
+use crate::{
+    framework::HandleTokenProcessingError,
+    tokenizer::{KeywordToken, Token, TokenType},
+};
 
-pub fn process_tokens(tokens: Vec<ParsedToken>) -> (Option<LolCodeProgram>, Vec<String>) {
-    let mut ctx_stack: Vec<ScopeContext> = vec![];
-    ctx_stack.push(MainContext::Pre.into());
+pub trait Parser {
+    fn process_tokens(&mut self, tokens: Vec<Token>) -> anyhow::Result<LolCodeProgram>;
+}
 
-    let mut errs = Vec::new();
-    for token in tokens {
-        let _ = debug_span!("Process token", ?ctx_stack).entered();
-        let mut context = ctx_stack.pop().expect("non-empty ctx stack");
-        debug!(?context, ?token);
+impl<T> Parser for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_tokens(&mut self, tokens: Vec<Token>) -> anyhow::Result<LolCodeProgram> {
+        let mut ctx_stack: Vec<ScopeContext> = vec![];
+        ctx_stack.push(MainContext::Pre.into());
 
-        let (op, err) = match (&mut context, token) {
-            (_, ParsedToken::Keyword(KeywordToken::Btw)) => {
-                (StackOp::Retain(Some(CommentContext::Started.into())), None)
-            }
-            (ScopeContext::Main(main), token) => main.process_token(token),
-            (ScopeContext::Decoration(ref mut decoration), token) => {
-                decoration.process_token(token)
-            }
-            (ScopeContext::Comment(comment), token) => comment.process_token(token),
-        };
+        for token in tokens {
+            let _ = debug_span!("Process token", ?ctx_stack).entered();
+            let mut context = ctx_stack.pop().context("non-empty ctx stack")?;
+            debug!(?context, token = ?token.t_type);
 
-        execute_stack_op(op, &mut ctx_stack, context);
+            let op = match &token.t_type {
+                TokenType::Keyword(KeywordToken::Btw) => {
+                    StackOp::Retain(Some(CommentContext::Started.into()))
+                }
+                _ => self.process_token(&mut context, &token)?,
+            };
 
-        if let Some(err) = err {
-            error!(err);
-            errs.push(err);
+            execute_stack_op(op, &mut ctx_stack, context);
         }
-    }
 
-    debug!(?ctx_stack);
+        debug!(?ctx_stack);
 
-    if ctx_stack.len() != 1 {
-        errs.push(format!("Stack is inappropriate length"));
-    }
-
-    match ctx_stack.pop() {
-        Some(ScopeContext::Main(MainContext::Complete(program))) => (Some(program), errs),
-        Some(ctx) => {
-            errs.push(format!("Unexpected ctx popped from stack {ctx:?}"));
-            (None, errs)
+        if ctx_stack.len() != 1 {
+            bail!("Stack is inappropriate length")
         }
-        None => (None, errs),
+
+        match ctx_stack.pop() {
+            Some(ScopeContext::Main(MainContext::Complete(program))) => Ok(program),
+            Some(ctx) => bail!("Unexpected ctx popped from stack {ctx:?}"),
+            None => unreachable!("stack should have length 1"),
+        }
     }
 }
 
@@ -160,6 +160,6 @@ pub enum StackOp {
     Replace(ScopeContext),
 }
 
-trait ParseScope {
-    fn process_token(&mut self, token: ParsedToken) -> (StackOp, Option<String>);
+trait ParseScope<Scope> {
+    fn process_token(&mut self, scope: &mut Scope, token: &Token) -> anyhow::Result<StackOp>;
 }
