@@ -1,3 +1,4 @@
+mod framework;
 mod interpreter;
 mod parser;
 mod tokenizer;
@@ -5,49 +6,52 @@ mod tokenizer;
 #[cfg(test)]
 mod test;
 
-use clap::Parser;
+use anyhow::bail;
+use clap::Parser as _;
+use framework::{App, HandleTokenProcessingError};
 use mediator::Module;
 use mediator_tracing::tracing::{info, Level};
 use mediator_tracing::{tracing::debug, TracingConfig};
 use mediator_tracing::{Targets, TracingModule};
-use parser::process_tokens;
-use std::io::{stdout, Write};
+use parser::Parser;
+use std::io::{stderr, stdout, Write};
 use std::str::FromStr;
 use std::{fs, path::Path, process::ExitCode};
-use tokenizer::{ParsedToken, TokenParseResult};
 
-use crate::interpreter::execute;
+use crate::interpreter::Interpret;
 use crate::tokenizer::parse_tokens;
 
-fn run<P: AsRef<Path>, W: Write>(path: P, interpret: bool, mut out: W) -> Result<(), Vec<String>> {
-    let file_contents = fs::read_to_string(path).expect("Unable to read provided file");
-    let parse_results = parse_tokens(file_contents);
+impl<StdOut, StdErr> App<StdOut, StdErr>
+where
+    StdOut: Write,
+    StdErr: Write,
+{
+    fn run<P>(&mut self, path: P, mode: Mode) -> anyhow::Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let file_contents = fs::read_to_string(path).expect("Unable to read provided file");
+        let tokens = parse_tokens(file_contents);
 
-    let (tokens, errs) = split_errs(parse_results);
-    debug!(tokens = ?&tokens);
+        debug!(tokens = ?(tokens.iter().map(|token| &token.t_type).collect::<Vec<_>>()));
 
-    let mut errs = errs;
+        let prog = self.process_tokens(tokens)?;
 
-    let (prog, tokenizer_errs) = process_tokens(tokens);
-    for err in tokenizer_errs {
-        errs.push(err);
+        debug!(?prog);
+
+        if self.error_handled() {
+            bail!("Something went wrong when compiling.");
+        }
+
+        if mode == Mode::Interpret {
+            self.execute(prog)?;
+        }
+
+        Ok(())
     }
-
-    debug!(?prog);
-
-    if errs.len() > 0 {
-        return Err(errs);
-    }
-
-    match (interpret, prog) {
-        (true, Some(prog)) => execute(prog, &mut out),
-        _ => {}
-    };
-
-    Ok(())
 }
 
-fn main() -> Result<ExitCode, Vec<String>> {
+fn main() -> anyhow::Result<ExitCode> {
     let args = Args::parse();
     TracingModule::new(Some(TracingConfig {
         base_targets: Some(
@@ -59,30 +63,28 @@ fn main() -> Result<ExitCode, Vec<String>> {
     .init();
     info!(?args);
 
-    run(args.filename, args.interpret, stdout()).map(|_| {
-        println!("Compilation successful");
-        ExitCode::SUCCESS
-    })
+    App::new(stdout(), stderr())
+        .run(args.filename, args.mode)
+        .map(|_| {
+            println!("Compilation successful");
+            ExitCode::SUCCESS
+        })
 }
 
-fn split_errs(results: Vec<TokenParseResult>) -> (Vec<ParsedToken>, Vec<String>) {
-    let errs = Vec::new();
-    let mut tokens = Vec::new();
-    for res in results {
-        tokens.push(res.result);
-    }
-
-    (tokens, errs)
-}
-
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     filename: String,
     /// Log level
     #[arg(long, default_value = "info")]
     log_level: String,
-    /// Enables interpreter mode
-    #[arg(short, default_value = "true")]
-    interpret: bool,
+    /// Mode to execute
+    #[arg(value_enum, default_value_t = Mode::Interpret)]
+    mode: Mode,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug, PartialEq)]
+enum Mode {
+    /// Use the interpreter
+    Interpret,
 }

@@ -1,21 +1,37 @@
 use std::io::Write;
 
-use crate::parser::{ExprContext, LolCodeProgram};
+use anyhow::Context;
 
-pub fn execute<W: Write>(prog: LolCodeProgram, out: &mut W) {
-    for instr in prog.instrs {
-        match instr {
-            ExprContext::Visible { args } => {
-                for arg in args {
-                    write!(out, "{arg}").expect("write to output");
+use crate::{
+    framework::StdOut,
+    parser::{ExprContext, LolCodeProgram},
+};
+
+pub trait Interpret {
+    fn execute(&mut self, prog: LolCodeProgram) -> anyhow::Result<()>;
+}
+
+impl<T> Interpret for T
+where
+    T: StdOut,
+{
+    fn execute(&mut self, prog: LolCodeProgram) -> anyhow::Result<()> {
+        for instr in prog.instrs {
+            match instr {
+                ExprContext::Visible { args } => {
+                    for arg in args {
+                        write!(self.out(), "{arg}").context("write to output")?;
+                    }
+
+                    writeln!(self.out(), "").context("newline to output")?;
                 }
-
-                writeln!(out, "").expect("newline to output");
+                ExprContext::Join(_) => todo!(),
+                ExprContext::String(_) => todo!(),
+                ExprContext::IncludeInProgress(_) => todo!(),
+                ExprContext::Include(_) => {}
             }
-            ExprContext::Join(_) => todo!(),
-            ExprContext::String(_) => todo!(),
-            ExprContext::IncludeInProgress(_) => todo!(),
-            ExprContext::Include(_) => {}
         }
+
+        Ok(())
     }
 }

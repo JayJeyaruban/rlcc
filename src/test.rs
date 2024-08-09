@@ -1,8 +1,8 @@
-use std::{fs, io::BufWriter, path::Path};
+use std::{fs, io::stderr, path::Path};
 
 use test_generator::test_resources;
 
-use crate::run;
+use crate::{framework::App, Mode};
 
 #[test_resources("tests/res/lci/test/1.3-Tests/1-Structure/**")]
 fn lci_structure_tests(resource: &str) {
@@ -26,10 +26,9 @@ fn run_dir(resource: &str) {
     let mut input_file = test_dir.to_path_buf();
     input_file.push("test.lol");
 
-    let mut buf = BufWriter::new(Vec::new());
-    let result = run(input_file, true, &mut buf);
-    let out_str = String::from_utf8(buf.into_inner().expect("convert buf to output bytes"))
-        .expect("convert output bytes to utf-8 string");
+    let mut output = Vec::new();
+    let result = App::new(&mut output, stderr()).run(input_file, Mode::Interpret);
+    let out_str = String::from_utf8(output).expect("convert output bytes to utf-8 string");
 
     let out_file = {
         let mut out_file = test_dir.to_path_buf();
