@@ -68,9 +68,20 @@ fn execute_stack_op(
                         instrs: ref mut exprs,
                         ..
                     }),
-                    ScopeContext::Main(MainContext::Expr(expr)),
+                    ScopeContext::Main(MainContext::Expr(ExprContext::Visible { args })),
                 ) => {
-                    exprs.push(expr);
+                    exprs.push(Instruction::Visible { args });
+                }
+                (
+                    ScopeContext::Main(MainContext::Root {
+                        instrs: ref mut exprs,
+                        ..
+                    }),
+                    ScopeContext::Main(MainContext::Expr(ExprContext::Include(
+                        IncludesContext::Module(module),
+                    ))),
+                ) => {
+                    exprs.push(Instruction::LoadModule { module });
                 }
                 (
                     ScopeContext::Main(MainContext::Expr(ExprContext::Visible { ref mut args })),
@@ -117,11 +128,17 @@ pub struct LolCodeVersion {
     minor: i32,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Instruction {
+    Visible { args: Vec<String> },
+    LoadModule { module: String },
+}
+
 #[derive(Debug, PartialEq, Eq)]
 #[jsm::public]
 pub struct LolCodeProgram {
     version: LolCodeVersion,
-    instrs: Vec<ExprContext>,
+    instrs: Vec<Instruction>,
 }
 
 impl TryFrom<String> for LolCodeVersion {

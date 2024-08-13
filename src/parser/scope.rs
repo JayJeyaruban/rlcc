@@ -3,7 +3,7 @@ use crate::{
     tokenizer::{KeywordToken, Token, TokenType},
 };
 
-use super::{LolCodeProgram, LolCodeVersion, ParseScope, StackOp};
+use super::{Instruction, LolCodeProgram, LolCodeVersion, ParseScope, StackOp};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScopeContext {
@@ -109,7 +109,7 @@ pub enum MainContext {
     Pre,
     Root {
         version: LolCodeVersion,
-        instrs: Vec<ExprContext>,
+        instrs: Vec<Instruction>,
     },
     Expr(ExprContext),
     Complete(LolCodeProgram),
@@ -169,7 +169,7 @@ where
 impl MainContext {
     fn root_handle_keyword<F>(
         version: &mut LolCodeVersion,
-        instrs: &mut Vec<ExprContext>,
+        instrs: &mut Vec<Instruction>,
         token: &KeywordToken,
         mut handle_err: F,
     ) -> anyhow::Result<StackOp>
@@ -187,7 +187,7 @@ impl MainContext {
             KeywordToken::Visible => {
                 StackOp::Retain(Some(ExprContext::Visible { args: Vec::new() }.into()))
             }
-            KeywordToken::Can => StackOp::Retain(Some(IncludeInProgress::Started.into())),
+            KeywordToken::Can => StackOp::Retain(Some(IncludesContext::Started.into())),
             KeywordToken::Has => {
                 handle_err(format!("Unexpected token {token:?}. Are you missing CAN?"))?;
                 StackOp::Retain(None)
@@ -212,7 +212,6 @@ pub enum ExprContext {
     Join(JoinContext),
     Visible { args: Vec<String> },
     String(StringExprContext),
-    IncludeInProgress(IncludeInProgress),
     Include(IncludesContext),
 }
 
@@ -245,7 +244,7 @@ where
             }
             (ExprContext::String(string_ctx), _) => self.process_token(string_ctx, token)?,
             (ExprContext::Join(join_ctx), _) => self.process_token(join_ctx, token)?,
-            (ExprContext::IncludeInProgress(includes), _) => self.process_token(includes, token)?,
+            (ExprContext::Include(includes), _) => self.process_token(includes, token)?,
             (ExprContext::Include(_), TokenType::NewLine) => StackOp::Unwind,
             (ExprContext::Include(_), TokenType::Space) => StackOp::Retain(None),
             (ExprContext::Include(_), t_type) => {
@@ -397,8 +396,12 @@ where
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct IncludesContext {
-    module: String,
+pub enum IncludesContext {
+    Started,
+    ReadyHas,
+    Has,
+    ReadyModule,
+    Module(String),
 }
 
 impl From<IncludesContext> for ScopeContext {
@@ -407,53 +410,37 @@ impl From<IncludesContext> for ScopeContext {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum IncludeInProgress {
-    Started,
-    ReadyHas,
-    Has,
-    ReadyModule,
-}
-
-impl From<IncludeInProgress> for ScopeContext {
-    fn from(value: IncludeInProgress) -> Self {
-        ExprContext::IncludeInProgress(value).into()
-    }
-}
-
-impl<T> ParseScope<IncludeInProgress> for T
+impl<T> ParseScope<IncludesContext> for T
 where
     T: HandleTokenProcessingError,
 {
     fn process_token(
         &mut self,
-        scope: &mut IncludeInProgress,
+        scope: &mut IncludesContext,
         token: &Token,
     ) -> anyhow::Result<StackOp> {
         let op = match (scope, &token.t_type) {
-            (IncludeInProgress::Started, TokenType::Space) => {
-                StackOp::Replace(IncludeInProgress::ReadyHas.into())
+            (IncludesContext::Started, TokenType::Space) => {
+                StackOp::Replace(IncludesContext::ReadyHas.into())
             }
-            (IncludeInProgress::Started, t_type) => {
+            (IncludesContext::Started, t_type) => {
                 self.handle_err(TokenProcessingError {
                     token,
                     err: format!("Unexpected token {t_type:?}"),
                 })?;
                 StackOp::Retain(None)
             }
-            (IncludeInProgress::ReadyHas, TokenType::Keyword(KeywordToken::Has)) => {
-                StackOp::Replace(IncludeInProgress::Has.into())
+            (IncludesContext::ReadyHas, TokenType::Keyword(KeywordToken::Has)) => {
+                StackOp::Replace(IncludesContext::Has.into())
             }
-            (IncludeInProgress::Has, TokenType::Space) => {
-                StackOp::Replace(IncludeInProgress::ReadyModule.into())
+            (IncludesContext::Has, TokenType::Space) => {
+                StackOp::Replace(IncludesContext::ReadyModule.into())
             }
-            (IncludeInProgress::ReadyModule, TokenType::Word(module)) => StackOp::Replace(
-                IncludesContext {
-                    module: module.to_owned(),
-                }
-                .into(),
-            ),
-            (IncludeInProgress::ReadyModule, _) => {
+            (IncludesContext::ReadyModule, TokenType::Word(module)) => {
+                StackOp::Replace(IncludesContext::Module(module.to_owned()).into())
+            }
+            (IncludesContext::Module(_), TokenType::NewLine) => StackOp::Unwind,
+            (IncludesContext::ReadyModule, _) => {
                 self.handle_err(TokenProcessingError {
                     token,
                     err: "Expected module to include".to_string(),
