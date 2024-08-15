@@ -9,6 +9,8 @@ pub enum KeywordToken {
     Btw,
     Can,
     Has,
+    OBtw,
+    Tldr,
 }
 
 impl From<KeywordToken> for TokenType {
@@ -123,6 +125,8 @@ fn parse_word(buffer: &mut String) -> Option<TokenType> {
         "BTW" => Some(KeywordToken::Btw.into()),
         "CAN" => Some(KeywordToken::Can.into()),
         "HAS" => Some(KeywordToken::Has.into()),
+        "OBTW" => Some(KeywordToken::OBtw.into()),
+        "TLDR" => Some(KeywordToken::Tldr.into()),
         "" => None,
         _ => Some(TokenType::Word(buffer.to_string())),
     };
