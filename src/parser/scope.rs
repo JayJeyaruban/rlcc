@@ -9,7 +9,8 @@ use super::{Instruction, LolCodeProgram, LolCodeVersion, ParseScope, StackOp};
 pub enum ScopeContext {
     Decoration(DecorationContext),
     Main(MainContext),
-    Comment(CommentContext),
+    SingleComment(SingleComment),
+    MultilineComment(MultilineComment),
 }
 
 impl<T> ParseScope<ScopeContext> for T
@@ -22,7 +23,8 @@ where
         token: &Token,
     ) -> anyhow::Result<StackOp> {
         match scope {
-            ScopeContext::Comment(comment) => self.process_token(comment, token),
+            ScopeContext::SingleComment(comment) => self.process_token(comment, token),
+            ScopeContext::MultilineComment(comment) => self.process_token(comment, token),
             ScopeContext::Decoration(decoration) => self.process_token(decoration, token),
             ScopeContext::Main(main) => self.process_token(main, token),
         }
@@ -361,37 +363,76 @@ impl From<JoinContext> for ScopeContext {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum CommentContext {
+pub enum SingleComment {
     Started,
     InProgress(Vec<String>),
 }
 
-impl From<CommentContext> for ScopeContext {
-    fn from(value: CommentContext) -> Self {
-        ScopeContext::Comment(value)
+impl From<SingleComment> for ScopeContext {
+    fn from(value: SingleComment) -> Self {
+        ScopeContext::SingleComment(value)
     }
 }
 
-impl<T> ParseScope<CommentContext> for T
+impl<T> ParseScope<SingleComment> for T
 where
     T: HandleTokenProcessingError,
 {
     fn process_token(
         &mut self,
-        scope: &mut CommentContext,
+        scope: &mut SingleComment,
         token: &Token,
     ) -> anyhow::Result<StackOp> {
         let op = match (scope, &token.t_type) {
-            (CommentContext::Started, t_type) => {
-                StackOp::Replace(CommentContext::InProgress(vec![t_type.to_string()]).into())
+            (SingleComment::Started, t_type) => {
+                StackOp::Replace(SingleComment::InProgress(vec![t_type.to_string()]).into())
             }
-            (CommentContext::InProgress(_), TokenType::NewLine) => StackOp::Unwind,
-            (CommentContext::InProgress(txt), token) => {
+            (SingleComment::InProgress(_), TokenType::NewLine) => StackOp::Unwind,
+            (SingleComment::InProgress(txt), token) => {
                 txt.push(token.to_string());
                 StackOp::Retain(None)
             }
         };
         Ok(op)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MultilineComment {
+    InProgress,
+    Completed,
+}
+
+impl From<MultilineComment> for ScopeContext {
+    fn from(value: MultilineComment) -> Self {
+        ScopeContext::MultilineComment(value)
+    }
+}
+
+impl<T> ParseScope<MultilineComment> for T
+where
+    T: HandleTokenProcessingError,
+{
+    fn process_token(
+        &mut self,
+        scope: &mut MultilineComment,
+        token: &Token,
+    ) -> anyhow::Result<StackOp> {
+        let res = match (scope, &token.t_type) {
+            (MultilineComment::InProgress, TokenType::Keyword(KeywordToken::Tldr)) => {
+                StackOp::Replace(MultilineComment::Completed.into())
+            }
+            (MultilineComment::InProgress, _) => StackOp::Retain(None),
+            (MultilineComment::Completed, TokenType::NewLine | TokenType::Comma) => StackOp::Unwind,
+            (MultilineComment::Completed, _) => {
+                self.handle_err(TokenProcessingError {
+                    token,
+                    err: format!("Expected newline"),
+                })?;
+                StackOp::Unwind
+            }
+        };
+        Ok(res)
     }
 }
 

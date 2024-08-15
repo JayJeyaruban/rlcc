@@ -9,9 +9,20 @@ fn lci_structure_tests(resource: &str) {
     run_dir(resource)
 }
 
-#[test_resources("tests/res/lci/test/1.3-Tests/2-Comments/1-SingleLine/**")]
-fn comments__single_line_tests(resource: &str) {
-    run_dir(resource)
+mod comments {
+    use test_generator::test_resources;
+
+    use super::run_dir;
+
+    #[test_resources("tests/res/lci/test/1.3-Tests/2-Comments/1-SingleLine/**")]
+    fn single_line_tests(resource: &str) {
+        run_dir(resource)
+    }
+
+    #[test_resources("tests/res/lci/test/1.3-Tests/2-Comments/2-MultipleLine/**")]
+    fn multiple_line_tests(resource: &str) {
+        run_dir(resource)
+    }
 }
 
 fn run_dir(resource: &str) {

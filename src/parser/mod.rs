@@ -28,9 +28,12 @@ where
             let mut context = ctx_stack.pop().context("non-empty ctx stack")?;
             debug!(?context, token = ?token.t_type);
 
-            let op = match &token.t_type {
-                TokenType::Keyword(KeywordToken::Btw) => {
-                    StackOp::Retain(Some(CommentContext::Started.into()))
+            let op = match (&context, &token.t_type) {
+                (ScopeContext::Main(_), TokenType::Keyword(KeywordToken::Btw)) => {
+                    StackOp::Retain(Some(SingleComment::Started.into()))
+                }
+                (ScopeContext::Main(_), TokenType::Keyword(KeywordToken::OBtw)) => {
+                    StackOp::Retain(Some(MultilineComment::InProgress.into()))
                 }
                 _ => self.process_token(&mut context, &token)?,
             };
@@ -91,7 +94,7 @@ fn execute_stack_op(
                     ScopeContext::Main(MainContext::Expr(ExprContext::Visible { .. })),
                     ScopeContext::Main(MainContext::Expr(ExprContext::Join(JoinContext::NewLine))),
                 ) => {}
-                (next, ScopeContext::Comment(CommentContext::InProgress(txt))) => {
+                (next, ScopeContext::SingleComment(SingleComment::InProgress(txt))) => {
                     debug!(?txt, "Dropping comment text");
                     match next {
                         ScopeContext::Main(MainContext::Expr(_)) => {
@@ -104,6 +107,7 @@ fn execute_stack_op(
                         _ => {}
                     }
                 }
+                (_, ScopeContext::MultilineComment(MultilineComment::Completed)) => {}
                 _ => panic!("unexpected current and previous ctx"),
             }
         }
