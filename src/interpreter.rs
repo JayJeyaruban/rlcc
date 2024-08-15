@@ -4,7 +4,7 @@ use anyhow::Context;
 
 use crate::{
     framework::StdOut,
-    parser::{ExprContext, Instruction, LolCodeProgram},
+    parser::{Instruction, LolCodeProgram},
 };
 
 pub trait Interpret {

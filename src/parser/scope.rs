@@ -247,15 +247,6 @@ where
             (ExprContext::String(string_ctx), _) => self.process_token(string_ctx, token)?,
             (ExprContext::Join(join_ctx), _) => self.process_token(join_ctx, token)?,
             (ExprContext::Include(includes), _) => self.process_token(includes, token)?,
-            (ExprContext::Include(_), TokenType::NewLine) => StackOp::Unwind,
-            (ExprContext::Include(_), TokenType::Space) => StackOp::Retain(None),
-            (ExprContext::Include(_), t_type) => {
-                self.handle_err(TokenProcessingError {
-                    token,
-                    err: format!("Unexpected token {t_type:?}"),
-                })?;
-                StackOp::Retain(None)
-            }
         };
         Ok(op)
     }
